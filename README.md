@@ -3,7 +3,7 @@
 CRNN (CNN + BiLSTM + CTC) do rozpoznawania polskich linii tekstu, trenowany
 na [ocr-pl-lines](https://huggingface.co/datasets/PiotrSty/ocr-pl-lines).
 
-**Status: WIP** — gotowe: dane, charset z filtracją rzadkich znaków, loader, model CRNN, dekoder, sanity-check pipeline. W trakcie: trening, metryki CER/WER, ewaluacja.
+**Status: WIP** — gotowe: dane, charset z filtracją rzadkich znaków, loader, model CRNN, dekoder, metryki, sanity-check pipeline, trening. W trakcie: ewaluacja (`evaluate.py`), inferencja (`infer.py`).
 
 ## Struktura katalogów
 
@@ -15,7 +15,8 @@ crnn-ocr/
 ├── environment.yml            # specyfikacja środowiska conda
 ├── requirements.txt           # zależności pip (to samo co pip w environment.yml)
 ├── check_env.py               # weryfikacja zależności (exit 0 = OK, 1 = braki)
-├── main.py                    # pipeline check z configu (docelowo punkt wejścia)
+├── main.py                    # sanity-check pipeline z configu (check przed treningiem)
+├── train.py                   # pętla treningu: CTC + TensorBoard + checkpointy
 ├── .gitignore
 │
 ├── configs/
@@ -41,19 +42,19 @@ crnn-ocr/
 │
 └── tests/
     ├── conftest.py            # sys.path dla pytesta (bez znaczenia, skąd odpalane)
-    ├── test_charset.py        # itos/stoi, round-trip encode/decode, save/load
+    ├── test_charset.py        # itos/stoi, round-trip encode/decode, save/load, min_count, NFC
     ├── test_greedy.py         # greedy decode: blanki, kolaps powtórek, batch
     ├── test_collate.py        # padding zerami, input_lens = w/4 przed paddingiem
     ├── test_crnn.py           # kontrakt kształtów (T = W/4), przepływ gradientów
-    ├── test_dataset.py        # CTC-skip na syntetycznych danych (tmpdir, bez data/raw)
+    ├── test_dataset.py        # filtry datasetu (charset, CTC) na syntetycznych danych
+    ├── test_metrics.py        # CER/WER/exact_match: przypadki brzegowe, batch
     └── test_smoke.py          # smoke na realnych danych (wymaga data/raw)
 ```
 
 `data/raw/` jest ignorowana przez git — dataset pobiera się osobno (poniżej).
 `runs/` i `checkpoints/` też są ignorowane (artefakty treningu, nie kod).
 
-Planowane/docelowe pliki (jeszcze nie istnieją): `train.py`, `evaluate.py`,
-`infer.py`.
+Planowane/docelowe pliki (jeszcze nie istnieją): `evaluate.py`, `infer.py`.
 
 ## Setup
 
@@ -139,13 +140,20 @@ Uwagi:
 - PowerShell 5.x nie obsługuje `&&` — krok 6 rozpisz linia po linii
   (zamiast `diff` użyj `Compare-Object (Get-Content a.txt) (Get-Content b.txt)`)
   albo odpal go w Git Bash.
-- Liczby w oczekiwanych wynikach (24 passed, 84 klasy, liczba skipów) dotyczą
+- Liczby w oczekiwanych wynikach (35 passed, 84 klasy, liczba skipów) dotyczą
   aktualnego datasetu — po zmianie danych oceń wyniki jakościowo
   (struktura outputu, brak błędów), a nie po dokładnych wartościach.
 
 ## Trening
 
-*(do dodania: `python train.py --config configs/default.yaml`, logi TensorBoard: `tensorboard --logdir runs/`)*
+```bash
+python train.py --config configs/default.yaml
+```
+
+- Checkpointy: `checkpoints/best.pt` (najniższy val CER) i `checkpoints/last.pt`,
+- Logi: `tensorboard --logdir runs/` (train/loss, val/loss, val/cer, val/wer, val/exact_match),
+- Walidacja po każdej epoce: CER / WER / exact match (`metrics.batch_metrics`, greedy decode),
+- Checkpoint zawiera `model`, `itos` (alfabet), `epoch` i metryki walidacji.
 
 ## Wyniki
 

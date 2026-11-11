@@ -22,7 +22,7 @@ data/cache/
 hf_cache/
 
 # --- Trening / artefakty ---
-runs/                    # logi TensorBoard
+runs/
 checkpoints/
 *.pt
 *.pth
