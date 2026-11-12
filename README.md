@@ -3,7 +3,76 @@
 CRNN (CNN + BiLSTM + CTC) do rozpoznawania polskich linii tekstu, trenowany
 na [ocr-pl-lines](https://huggingface.co/datasets/PiotrSty/ocr-pl-lines).
 
-**Status: WIP** — gotowe: dane, charset z filtracją rzadkich znaków, loader, model CRNN, dekoder, metryki, sanity-check pipeline, trening. W trakcie: ewaluacja (`evaluate.py`), inferencja (`infer.py`).
+**Status: WIP** — gotowe: dane, charset z filtracją rzadkich znaków, loader,
+model CRNN, dekoder (greedy + beam), metryki, sanity-check pipeline, trening
+(+`--resume`), auto-pobranie danych z HF, predykcja (`predict.py`), ewaluacja
+(`evaluate.py` → `metrics.json`).
+
+## Komendy (wszystkie w jednym miejscu)
+
+Setup (raz, po klonie):
+
+```bash
+conda env create -f environment.yml && conda activate ocr_env   # albo: pip install -r requirements.txt
+python check_env.py                                             # weryfikacja zależności (exit 0 = OK)
+```
+
+Dane: nic nie robisz — `train.py`/`main.py` pobiorą dataset z HF
+automatycznie, gdy `data/raw/{train,val}` są puste (raz, idempotentnie;
+URL + SHA-256 przypięte w `configs/default.yaml`).
+
+### Trening i resume
+
+```bash
+python train.py --config configs/default.yaml                         # trening
+python train.py --config configs/default.yaml --resume checkpoints/last.pt   # kontynuacja
+```
+
+### Ewaluacja i predykcja
+
+```bash
+python evaluate.py                                # best.pt, greedy -> metrics.json
+python evaluate.py --decoder beam --out metrics_beam.json
+python evaluate.py --checkpoint inny.pt --device cpu --out raport.json
+
+python predict.py --image linia.png               # greedy (domyślnie)
+python predict.py --image linia.png --decoder beam --beam-size 10
+python predict.py --image linia.png --checkpoint checkpoints/best.pt --device cpu
+
+# demo bez datasetu: deterministyczna linia testowa -> predykcja
+python make_test_line.py && python predict.py --image test_line.png
+```
+
+### Sanity checks (przed commitem)
+
+```bash
+python check_env.py                                                        # zależności + GPU
+python -m ruff check .                                                     # linter (config: ruff.toml)
+python -m pytest tests/ -q                                                 # testy (bez danych, <1 min)
+python tests/test_smoke.py                                                 # smoke na realnych danych
+python main.py --config configs/default.yaml                               # pełny pipeline, metryki batcha
+python evaluate.py                                                         # metryki best.pt -> metrics.json
+python -m data.charset > a.txt && python -m data.charset > b.txt && diff a.txt b.txt && rm a.txt b.txt   # determinizm przebudowy
+```
+
+Oczekiwane: linter `All checks passed!`, testy `58 passed`, smoke:
+`train=1737 (charset-skip: 228, CTC-skip: 35)`, `val=181 (18, 1)`,
+`Liczba klas dla CRNN: 84`, zero duplikatów PNG train/val,
+diff milczy. Liczby dotyczą aktualnego
+datasetu (v1) — po zmianie danych oceń jakościowo, nie po wartościach.
+PowerShell 5.x nie obsługuje `&&` — ostatnią komendę rozpisz linia po
+linii albo odpal w Git Bash.
+
+### Konserwacja danych/alfabetu (rzadko)
+
+```bash
+python -m data.charset            # przebuduj alfabet z data/raw (zapis configs/charset.json)
+tensorboard --logdir runs/        # logi treningu
+```
+
+Uwaga: przebudowa alfabetu zmienia `configs/charset.json` — po niej
+stary `best.pt` (84 klasy) przestaje pasować do modelu wytrenowanego
+od zera; nie przebudowuj „na zapas" na pustym `data/raw`.
 
 ## Struktura katalogów
 
@@ -14,9 +83,15 @@ crnn-ocr/
 ├── LICENSE                    # pełny tekst licencji MIT
 ├── environment.yml            # specyfikacja środowiska conda
 ├── requirements.txt           # zależności pip (to samo co pip w environment.yml)
+├── ruff.toml                  # config lintera: select (z E402) + exclude data/raw
 ├── check_env.py               # weryfikacja zależności (exit 0 = OK, 1 = braki)
 ├── main.py                    # sanity-check pipeline z configu (check przed treningiem)
-├── train.py                   # pętla treningu: CTC + TensorBoard + checkpointy
+├── train.py                   # pętla treningu: CTC + TensorBoard + checkpointy + --resume
+├── evaluate.py                # metryki checkpointu -> konsola + metrics.json (źródło prawdy)
+├── predict.py                 # inferencja: obraz -> tekst (model+alfabet z best.pt)
+├── make_test_line.py          # deterministyczna linia testowa (pangram) -> PNG
+├── metrics.json               # raport z evaluate.py (greedy) — artefakt dokumentacyjny (git!)
+├── metrics_beam.json          # raport z evaluate.py (beam k=10) — jak wyżej
 ├── .gitignore
 │
 ├── configs/
@@ -25,149 +100,81 @@ crnn-ocr/
 │   └── char_stats.txt         # rozkład znaków w labelach (lokalny, ignorowany)
 │
 ├── data/
-│   ├── __init__.py
 │   ├── charset.py             # budowa alfabetu: NFC + filtr min_count (blank=0)
 │   ├── dataset.py             # LineDataset (filtry: alfabet, CTC) + collate (lens, H=32)
+│   ├── download.py            # auto-pobranie datasetu z HF (idempotentne, SHA-256)
 │   ├── char_stats.py          # rozkład znaków + gdzie występują rzadkie znaki
 │   └── raw/                   # dane: pary {base}.png / {base}.txt (IGNOROWANE przez git)
 │
 ├── model/
-│   ├── __init__.py
 │   └── crnn.py                # CRNN: CNN -> sekwencja -> BiLSTM -> FC (T = W/4)
 │
 ├── decoding/
-│   └── greedy.py              # greedy CTC decode (potem: beam.py)
+│   ├── greedy.py              # greedy CTC decode (argmax + kolaps powtórek)
+│   └── beam.py                # prefix beam search CTC (kontrakt jak greedy.py)
 │
 ├── metrics.py                 # CER / WER / exact match (rapidfuzz) + batch dla train.py
 │
-└── tests/
-    ├── conftest.py            # sys.path dla pytesta (bez znaczenia, skąd odpalane)
-    ├── test_charset.py        # itos/stoi, round-trip encode/decode, save/load, min_count, NFC
-    ├── test_greedy.py         # greedy decode: blanki, kolaps powtórek, batch
-    ├── test_collate.py        # padding zerami, input_lens = w/4 przed paddingiem
-    ├── test_crnn.py           # kontrakt kształtów (T = W/4), przepływ gradientów
-    ├── test_dataset.py        # filtry datasetu (charset, CTC) na syntetycznych danych
-    ├── test_metrics.py        # CER/WER/exact_match: przypadki brzegowe, batch
-    └── test_smoke.py          # smoke na realnych danych (wymaga data/raw)
+└── tests/                     # unit: charset, greedy, beam, collate, crnn, dataset,
+                               #       metrics, download, predict, resume, make_test_line;
+                               #       smoke: realne dane
 ```
 
-`data/raw/` jest ignorowana przez git — dataset pobiera się osobno (poniżej).
-`runs/` i `checkpoints/` też są ignorowane (artefakty treningu, nie kod).
-
-Planowane/docelowe pliki (jeszcze nie istnieją): `evaluate.py`, `infer.py`.
-
-## Setup
-
-```bash
-conda env create -f environment.yml
-conda activate ocr_env
-
-# weryfikacja zależności (użyteczne też w CI — kod wyjścia 0/1)
-python check_env.py
-```
-
-Albo bez conda: `pip install -r requirements.txt`.
+`data/raw/`, `runs/`, `checkpoints/` — ignorowane przez git (dane /
+artefakty).
 
 ## Dane
 
-Dataset w formie par plików `{base}.png` + `{base}.txt` umieść w:
+Pary `{base}.png` + `{base}.txt` w `data/raw/train/` i `data/raw/val/`.
+Jeśli oba katalogi są puste — `train.py`/`main.py` pobierają dataset
+z HF automatycznie (raz, idempotentnie; URL + SHA-256 w configu).
 
-```
-data/raw/train/
-data/raw/val/
-```
+**Kontaminacja train/val** (audyt w `tests/test_smoke.py`): zero
+identycznych renderów (PNG) między splitami, ale 138/200 transkrypcji val
+występuje też w train — generator losował z puli z powtórzeniami.
+Rendery się różnią, więc nie ma wycieku pikseli; overlap daje modelowi
+znajomość tekstów waluacyjnych. Kontrolnie: na 62 czystych (niepokrywających
+się z train; po filtrach `LineDataset` zostaje z nich 59 — to „n" w tabeli
+„Wyniki") próbkach wyniki są *lepsze* niż na całym val (krótkie
+boilerplate-y z train są trudniejsze), więc metryki z tabeli nie są
+kontaminacją zawyżone. Docelowo: dedup tekstów przed splitem
+w [OCR_engine](https://github.com/PiotrStyla/OCR_engine).
 
-## Regeneracja konfiguracji
+## Alfabet
 
-Po zmianie danych (lub progu częstości) przebuduj alfabet:
-
-```bash
-python data/charset.py      # równoważnie: python -m data.charset
-# zapisuje configs/charset.json; wypisuje odrzucone znaki i raport val
-```
-
-## Alfabet a znaki egzotyczne
-
-- Transkrypcje czytane jawnym UTF-8 + normalizacją NFC (przed strip/encode —
-  chroni przed podwojonymi literami przy danych w formie NFD).
-- `build_charset(..., min_count=25)`: znaki rzadsze niż 25× w train (cyrylica,
-  katakana/kanji, pojedyncze znaki obce) wypadają z alfabetu. Pełna lista
-  z licznikami przy budowie + w `cs.dropped_chars`. Obecnie: 84 klasy.
-- Znaki val spoza alfabetu train są **raportowane** (znak + pliki), bez wyjątku.
-- `LineDataset` pomija próbki dwoma filtrami, w kolejności: 1) znak spoza
-  alfabetu (`skipped_charset`, nazwy w `skipped_names` — np. polska linia
-  z „Märtenstorget"), 2) labelka dłuższa niż W/4 kroków (`skipped_ctc`).
-- Ground truth nietknięty — bez `<unk>`, bez transliteracji. `Charset.encode`
-  rzuca jawny wyjątek (znak + hex U+XXXX); awaryjne mapowanie nieznanego
-  znaku pojawi się dopiero przy inferencji.
-
-## Sanity checks
-
-Komendy przed commitem (z katalogu głównego repo, po `conda activate ocr_env`):
-
-```bash
-# 1. Środowisko — wszystkie zależności + GPU
-python check_env.py
-#    oczekiwane: same [OK], "Wszystkie zależności są dostępne. OK", exit 0
-
-# 2. Linter — jakość kodu
-python -m ruff check . --select E,W,F,I,B,UP --exclude data/raw
-#    oczekiwane: All checks passed!
-
-# 3. Testy jednostkowe — bez danych, bez GPU (ok. 7 s)
-python -m pytest tests/ -q
-#    oczekiwane: 35 passed
-
-# 4. Smoke na realnych danych — diagnostyka charsetu + loadera
-python tests/test_smoke.py
-#    oczekiwane: 59 znaków wypadających (n < 25), raport val (10 znaków),
-#    train=1737 (charset-skip: 228, CTC-skip: 35), val=181 (18, 1),
-#    na końcu: "[OK] Wszystko gra. Liczba klas dla CRNN: 84"
-
-# 5. Pełny pipeline przez model (GPU)
-python main.py --config configs/default.yaml
-#    oczekiwane: 84 klasy, skończony CTC loss (bez inf/NaN),
-#    "Metryki batcha: CER=... WER=... exact_match=..." (bez treningu),
-#    "[OK] Pipeline działa end-to-end (config -> dane -> model -> CTC -> dekoder -> metryki)"
-
-# 6. Opcjonalnie: determinizm przebudowy alfabetu
-python -m data.charset > a.txt && python -m data.charset > b.txt && diff a.txt b.txt && rm a.txt b.txt
-#    oczekiwane: diff milczy, "Zapisano: configs/charset.json"
-```
-
-Uwagi:
-
-- PowerShell 5.x nie obsługuje `&&` — krok 6 rozpisz linia po linii
-  (zamiast `diff` użyj `Compare-Object (Get-Content a.txt) (Get-Content b.txt)`)
-  albo odpal go w Git Bash.
-- Liczby w oczekiwanych wynikach (35 passed, 84 klasy, liczba skipów) dotyczą
-  aktualnego datasetu — po zmianie danych oceń wyniki jakościowo
-  (struktura outputu, brak błędów), a nie po dokładnych wartościach.
-
-## Trening
-
-```bash
-python train.py --config configs/default.yaml
-```
-
-- Checkpointy: `checkpoints/best.pt` (najniższy val CER) i `checkpoints/last.pt`,
-- Logi: `tensorboard --logdir runs/` (train/loss, val/loss, val/cer, val/wer, val/exact_match),
-- Walidacja po każdej epoce: CER / WER / exact match (`metrics.batch_metrics`, greedy decode),
-- Checkpoint zawiera `model`, `itos` (alfabet), `epoch` i metryki walidacji.
+- Transkrypcje: jawne UTF-8 + NFC przed strip/encode (bez podwojonych liter z NFD).
+- `build_charset(min_count=25)`: rzadsze znaki (cyrylica, katakana itp.)
+  wypadają; lista z licznikami wypisywana przy budowie (`cs.dropped_chars`).
+- `LineDataset` pomija próbki: 1) znak spoza alfabetu (`skipped_charset`),
+  2) labelka dłuższa niż W/4 (`skipped_ctc`). GT nietknięty, bez `<unk>`.
 
 ## Wyniki
 
-*(do uzupełnienia po pierwszych treningach: CER / WER / exact match na zbiorze walidacyjnym i testowym)*
+Źródło prawdy: `metrics.json` / `metrics_beam.json` (artefakty
+`evaluate.py`; kopiuj z nich, nie z konsoli).
+
+| decoder | n | val CER | val WER | exact match | val loss |
+|---------|---|---------|---------|-------------|----------|
+| greedy  | 181 | 0.0452 | 0.1996 | 0.5746 | 0.2431 |
+| beam (k=10) | 181 | 0.0451 | 0.1926 | 0.5912 | 0.2431 |
+
+Kontrolnie na 59 czystych (bez kontaminacji tekstowej, patrz „Dane"):
+
+| decoder | n | val CER | val WER | exact match |
+|---------|---|---------|---------|-------------|
+| greedy  | 59 | 0.0308 | 0.1748 | 0.6949 |
+| beam (k=10) | 59 | 0.0299 | 0.1695 | 0.6949 |
+
+Checkpoint: `checkpoints/best.pt` (epoch 40). Selekcja best.pt po walidacyjnym
+greedy CER; metryki zapisane w checkpoincie zgodne z `metrics.json`
+(ten sam dekoder z cięciem po `input_lens`).
 
 ## Licencja
 
-Kod projektu: licencja **MIT** — pełny tekst w [LICENSE](LICENSE).
-
-Dane treningowe (`data/raw/`) nie są częścią repozytorium. Zbiór
-[ocr-pl-lines](https://huggingface.co/datasets/PiotrSty/ocr-pl-lines)
-jest udostępniony na licencji **MIT** (zgodnie z kartą datasetu), więc
-publikacja artefaktów treningu (modele, checkpointy) również nie jest
-ograniczona.
+Kod: **MIT** — pełny tekst w [LICENSE](LICENSE). Dane nie są częścią repo;
+ich licencja i atrybucja — patrz karta
+[ocr-pl-lines](https://huggingface.co/datasets/PiotrSty/ocr-pl-lines):
+próbki wygenerowane ze zdań Wikipedii dziedziczą CC BY-SA 4.0.
 
 ## Autorzy
 

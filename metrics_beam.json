@@ -1,0 +1,12 @@
+{
+  "checkpoint": "checkpoints\\best.pt",
+  "epoch": 40,
+  "n_val": 181,
+  "decoder": "beam",
+  "metrics": {
+    "cer": 0.0451,
+    "wer": 0.1926,
+    "exact_match": 0.5912,
+    "loss": 0.2431
+  }
+}

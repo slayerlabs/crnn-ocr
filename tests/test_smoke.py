@@ -1,7 +1,8 @@
-"""Smoke test: diagnostyka alfabetu + sprawdzenie loadera na realnych danych.
+"""Smoke test: diagnostyka alfabetu + loader + kontaminacja train/val.
 
 Uruchomienie:  python tests/test_smoke.py
 """
+import hashlib
 import sys
 from collections import Counter
 from pathlib import Path
@@ -106,3 +107,32 @@ print("[OK] CTC check: labelki mieszczą się w sekwencji czasowej")
 
 # rozmiar klasy spójny z modelem
 print(f"[OK] Wszystko gra. Liczba klas dla CRNN: {len(cs)}")
+
+# ---------------------------------------------------------------
+# 4. KONTAMINACJA train/val — rendery versus transkrypcje
+# ---------------------------------------------------------------
+print("\n=== KONTAMINACJA (train vs val) ===")
+
+
+def _md5(path):
+    return hashlib.md5(Path(path).read_bytes()).hexdigest()
+
+
+train_png = {_md5(f) for f in Path(TRAIN_DIR).glob("*.png")}
+dup_png = [f.name for f in Path(VAL_DIR).glob("*.png") if _md5(f) in train_png]
+assert not dup_png, (
+    f"Identyczne obrazy w train i val (kontaminacja!): {dup_png[:5]}... "
+    "— split musi być naprawiony w generatorze datasetu"
+)
+print("[OK] Zero identycznych renderów (PNG) train/val.")
+
+train_txt = {_md5(f) for f in Path(TRAIN_DIR).glob("*.txt")}
+overlap_txt = [f.name for f in Path(VAL_DIR).glob("*.txt")
+               if _md5(f) in train_txt]
+print(f"Transkrypcje val obecne w train (tekstowy prior): "
+      f"{len(overlap_txt)} / {len(list(Path(VAL_DIR).glob('*.txt')))}"
+      f"  np. {overlap_txt[:3]}")
+print("[UWAGA] Tekstowy overlap to cecha generatora datasetu (pula z "
+      "powtórzeniami) — metryki porównuj z tą liczbą na uwadze; "
+      "docelowo: dedup tekstów przed splitem w OCR_engine.")
+
