@@ -9,7 +9,6 @@ Docelowo: pętla treningu (train.py) czytająca ten sam plik configu.
 """
 import argparse
 import sys
-from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -18,6 +17,7 @@ from torch.utils.data import DataLoader
 
 from data.charset import Charset
 from data.dataset import LineDataset, collate
+from data.download import ensure_dataset
 from decoding.greedy import greedy_decode
 from metrics import batch_metrics
 from model.crnn import CRNN
@@ -57,10 +57,9 @@ def main():
     cs = Charset.load(charset_path)
     print(f"Alfabet:  {len(cs)} klas (z blank), plik {charset_path}")
 
-    for key in ("train_dir", "val_dir"):
-        p = Path(cfg["data"][key])
-        if not p.is_dir():
-            sys.exit(f"[ERROR] Brak katalogu {p} — patrz README, sekcja Dane")
+    ensure_dataset(cfg["data"]["train_dir"], cfg["data"]["val_dir"],
+                   url=cfg["data"].get("dataset_url"),
+                   sha256=cfg["data"].get("dataset_sha256"))
 
     train_ds = LineDataset(cfg["data"]["train_dir"], cs)
     val_ds = LineDataset(cfg["data"]["val_dir"], cs)

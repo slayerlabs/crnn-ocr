@@ -1,0 +1,7 @@
+# Konfiguracja lintera — goły `ruff check .` czyta ten plik.
+# E402 (w rodzinie E) celowo: entry-pointy robią reconfigure("utf-8") przed
+# importami repo (polskie znaki w printach) — wyciszane jawnie # noqa: E402.
+exclude = ["data/raw"]
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "RUF100"]

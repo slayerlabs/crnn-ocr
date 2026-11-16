@@ -7,6 +7,11 @@ data:
   charset_file: configs/charset.json   # przebudowa: python data/charset.py
   batch_size: 32
   num_workers: 0                       # 0 = najbezpieczniej na Windowsie
+  # Auto-pobranie datasetu z HF, gdy data/raw/{train,val} są puste
+  # (idempotentne: przy istniejących danych nic nie jest ściągane).
+  # SHA-256 z pointera LFS na HF — przypina wersję v1. null = wyłączone.
+  dataset_url: https://huggingface.co/datasets/PiotrSty/ocr-pl-lines/resolve/main/ocr-pl-lines-v1.tar.gz
+  dataset_sha256: 5667c3966416361ab90666b63690effaea735a097a0525cc49e3df74e07d27e4
 
 model:
   lstm_hidden: 256
@@ -14,10 +19,12 @@ model:
 
 train:                                 # parametry treningu (train.py)
   device: auto                         # auto | cpu | cuda
-  epochs: 20
+  epochs: 40
   lr: 0.001
   seed: 42                             # torch.manual_seed — reprodukowalność
   log_every: 50                        # co ile stepów log (konsola + TensorBoard)
   grad_clip: 5.0                       # clip gradientów (LSTM lubi eksplodować); null = off
+  decoder: greedy                      # greedy | beam (beam wymaga decoding/beam.py w repo)
+  beam_size: 10                        # szerokość wiązki; użyte tylko przy decoder=beam
   checkpoint_dir: checkpoints
   log_dir: runs                        # tensorboard --logdir runs

@@ -1,0 +1,12 @@
+{
+  "checkpoint": "checkpoints\\best.pt",
+  "epoch": 40,
+  "n_val": 181,
+  "decoder": "greedy",
+  "metrics": {
+    "cer": 0.0452,
+    "wer": 0.1996,
+    "exact_match": 0.5746,
+    "loss": 0.2431
+  }
+}
