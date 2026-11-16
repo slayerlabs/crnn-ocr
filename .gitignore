@@ -5,6 +5,8 @@ conda-meta/
 
 # --- Python ---
 __pycache__/
+.pytest_cache/
+.ruff_cache/
 *.py[cod]
 *.egg-info/
 .venv/
@@ -20,7 +22,7 @@ data/cache/
 hf_cache/
 
 # --- Trening / artefakty ---
-runs/                    # logi TensorBoard
+runs/
 checkpoints/
 *.pt
 *.pth
@@ -39,3 +41,4 @@ wandb/
 Thumbs.db
 Desktop.ini
 .DS_Store
+char_stats.txt
